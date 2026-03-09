@@ -1,0 +1,36 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=sqlite:////data/bookshelf.db
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set}
+      - CORS_ORIGINS=http://localhost,https://${DOMAIN:-localhost}
+    volumes:
+      - bookshelf_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+
+volumes:
+  bookshelf_data:
+
+networks:
+  internal:
+    driver: bridge

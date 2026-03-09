@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Shelf board -->
+  <rect x="2" y="22" width="28" height="3" rx="1" fill="#8B5E3C"/>
+  <!-- Book 1 (tall, burgundy) -->
+  <rect x="4" y="10" width="5" height="12" rx="0.5" fill="#8B3A4A"/>
+  <rect x="4.5" y="11" width="1" height="10" rx="0.2" fill="#A84C5C" opacity="0.5"/>
+  <!-- Book 2 (medium, warm teal) -->
+  <rect x="10" y="13" width="4" height="9" rx="0.5" fill="#3A6B7C"/>
+  <!-- Book 3 (tall, golden) -->
+  <rect x="15" y="9" width="5" height="13" rx="0.5" fill="#C4893A"/>
+  <rect x="15.5" y="10" width="1" height="11" rx="0.2" fill="#D9A04D" opacity="0.5"/>
+  <!-- Book 4 (short, green) -->
+  <rect x="21" y="15" width="4" height="7" rx="0.5" fill="#4A7A4A"/>
+  <!-- Book 5 (medium, deep brown) -->
+  <rect x="26" y="12" width="3" height="10" rx="0.5" fill="#6B4226"/>
+  <!-- Shelf bottom shadow -->
+  <rect x="2" y="24.5" width="28" height="0.5" rx="0.5" fill="#6B3A20" opacity="0.4"/>
+</svg>
