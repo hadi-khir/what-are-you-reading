@@ -312,12 +312,6 @@ export function SearchModal({ onClose, onAdded, currentYear }: SearchModalProps)
     if (view.kind === "search") inputRef.current?.focus();
   }, [view]);
 
-  // Kick off pack resolution in the background as soon as the modal opens.
-  // resolvePack caches results, so by the time the user clicks a pack it's instant.
-  useEffect(() => {
-    STARTER_PACKS.forEach((p) => resolvePack(p));
-  }, []);
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
