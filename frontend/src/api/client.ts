@@ -22,14 +22,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(`${BASE}${path}`, { ...init, headers });
 
-  if (response.status === 401) {
-    localStorage.removeItem("token");
-    window.location.href = "/login";
-  }
-
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new ApiError(response.status, body.detail ?? "Request failed");
+    // FastAPI validation errors return detail as an array of {msg} objects
+    const detail = Array.isArray(body.detail)
+      ? body.detail.map((e: { msg?: string }) => e.msg ?? String(e)).join(", ")
+      : (body.detail ?? "Request failed");
+    // Only redirect to login on 401 if we're not already on an auth page
+    if (response.status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register")) {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
+    }
+    throw new ApiError(response.status, detail);
   }
 
   if (response.status === 204) {
