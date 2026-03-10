@@ -34,7 +34,7 @@ def register(request: Request, body: RegisterRequest, db: Session = Depends(get_
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 def login(request: Request, body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.username == body.username)).scalar_one_or_none()
+    user = db.execute(select(User).where(User.username.ilike(body.username))).scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return TokenResponse(access_token=create_access_token(user.id))

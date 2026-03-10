@@ -73,7 +73,7 @@ export function BookSpine({ userBook, onClick }: BookSpineProps) {
             style={{
               color: colors.text,
               fontSize,
-              writingMode: "vertical-lr",
+              writingMode: "vertical-rl",
               transform: "rotate(180deg)",
               overflow: "hidden",
               maxHeight: height - 28,
