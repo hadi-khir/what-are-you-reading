@@ -18,21 +18,37 @@ const STATUS_OPTIONS: { value: BookStatus; label: string }[] = [
 ];
 
 // ── Pack book resolution cache ─────────────────────────────────────────────
-// Keyed by pack id → resolved results (null = not found on Open Library)
-const packCache = new Map<string, (BookSearchResult | null)[]>();
+// Keyed by pack id → sparse array (undefined = not yet fetched, null = not found)
+const packCache = new Map<string, (BookSearchResult | null | undefined)[]>();
 
-async function resolvePack(pack: StarterPack): Promise<(BookSearchResult | null)[]> {
-  if (packCache.has(pack.id)) return packCache.get(pack.id)!;
-  const results = await Promise.all(
-    pack.books.map((b) =>
-      booksApi
+const PAGE_SIZE = 10;
+
+async function resolvePackPage(
+  pack: StarterPack,
+  page: number,
+): Promise<void> {
+  if (!packCache.has(pack.id)) {
+    packCache.set(pack.id, new Array(pack.books.length).fill(undefined));
+  }
+  const cache = packCache.get(pack.id)!;
+  const start = page * PAGE_SIZE;
+  const end = Math.min(start + PAGE_SIZE, pack.books.length);
+
+  const toFetch = [];
+  for (let i = start; i < end; i++) {
+    if (cache[i] === undefined) toFetch.push(i);
+  }
+  if (!toFetch.length) return;
+
+  await Promise.all(
+    toFetch.map(async (i) => {
+      const b = pack.books[i];
+      cache[i] = await booksApi
         .search(`${b.title} ${b.author}`)
         .then((r) => r[0] ?? null)
-        .catch(() => null),
-    ),
+        .catch(() => null);
+    }),
   );
-  packCache.set(pack.id, results);
-  return results;
 }
 
 // ── Sub-views ──────────────────────────────────────────────────────────────
@@ -56,21 +72,31 @@ function PackPreview({
   onBack: () => void;
   onDone: (added: UserBook[]) => void;
 }) {
-  const [resolved, setResolved] = useState<(BookSearchResult | null)[] | null>(null);
+  const [page, setPage] = useState(0);
+  const [resolved, setResolved] = useState<(BookSearchResult | null | undefined)[]>(
+    () => packCache.get(pack.id) ?? new Array(pack.books.length).fill(undefined),
+  );
+  const [pageLoading, setPageLoading] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [status, setStatus] = useState<BookStatus>("want_to_read");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
+  const totalPages = Math.ceil(pack.books.length / PAGE_SIZE);
+  const pageStart = page * PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + PAGE_SIZE, pack.books.length);
+  const pageSlice = resolved.slice(pageStart, pageEnd);
+  const pageLoaded = pageSlice.every((b) => b !== undefined);
+
   useEffect(() => {
     let cancelled = false;
-    resolvePack(pack).then((r) => {
+    setPageLoading(true);
+    resolvePackPage(pack, page).then(() => {
       if (cancelled) return;
-      setResolved(r);
-      // Start with nothing selected
-      setSelected(new Set());
+      setResolved([...(packCache.get(pack.id) ?? [])]);
+      setPageLoading(false);
     });
     return () => { cancelled = true; };
-  }, [pack]);
+  }, [pack, page]);
 
   const toggle = (i: number) =>
     setSelected((prev) => {
@@ -79,17 +105,32 @@ function PackPreview({
       return next;
     });
 
-  const allFound = resolved?.flatMap((b, i) => (b ? [{ b, i }] : [])) ?? [];
-  const allSelected = allFound.every(({ i }) => selected.has(i));
+  const pageFound = pageLoaded
+    ? pageSlice.flatMap((b, localI) =>
+        b ? [{ b: b as BookSearchResult, i: pageStart + localI }] : [],
+      )
+    : [];
+  const pageAllSelected =
+    pageFound.length > 0 && pageFound.every(({ i }) => selected.has(i));
 
   const toggleAll = () =>
-    allSelected
-      ? setSelected(new Set())
-      : setSelected(new Set(allFound.map(({ i }) => i)));
+    pageAllSelected
+      ? setSelected((prev) => {
+          const next = new Set(prev);
+          pageFound.forEach(({ i }) => next.delete(i));
+          return next;
+        })
+      : setSelected((prev) => {
+          const next = new Set(prev);
+          pageFound.forEach(({ i }) => next.add(i));
+          return next;
+        });
 
   const handleAdd = async () => {
-    if (!resolved) return;
-    const toAdd = resolved.flatMap((b, i) => (b && selected.has(i) ? [b] : []));
+    const cache = packCache.get(pack.id) ?? [];
+    const toAdd = cache.flatMap((b, i) =>
+      b && selected.has(i) ? [b as BookSearchResult] : [],
+    );
     if (!toAdd.length) return;
 
     setProgress({ done: 0, total: toAdd.length });
@@ -131,10 +172,10 @@ function PackPreview({
 
       {/* Book list */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {!resolved ? (
-          // Loading skeletons
+        {pageLoading && !pageLoaded ? (
+          // Loading skeletons for current page
           <div className="p-4 space-y-3">
-            {pack.books.slice(0, 8).map((_, i) => (
+            {Array.from({ length: Math.min(PAGE_SIZE, pack.books.length - pageStart) }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 animate-pulse">
                 <div className="w-4 h-4 rounded bg-cream-200 flex-shrink-0" />
                 <div className="w-9 h-12 rounded-sm bg-cream-200 flex-shrink-0" />
@@ -156,26 +197,27 @@ function PackPreview({
                 onClick={toggleAll}
                 className="font-ui text-xs text-wood hover:text-ink transition-colors"
               >
-                {allSelected ? "Deselect all" : "Select all"}
+                {pageAllSelected ? "Deselect page" : "Select page"}
               </button>
               <span className="font-ui text-xs text-ink-muted">
-                {selectedCount} of {allFound.length} selected
+                {selectedCount} selected · {pack.books.length} total
               </span>
             </div>
 
-            {resolved.map((book, i) => {
-              const packBook = pack.books[i];
-              const isSelected = selected.has(i);
-              const found = !!book;
+            {pageSlice.map((book, localI) => {
+              const globalI = pageStart + localI;
+              const packBook = pack.books[globalI];
+              const isSelected = selected.has(globalI);
+              const found = book !== undefined && book !== null;
               return (
                 <button
-                  key={i}
-                  onClick={() => found && toggle(i)}
+                  key={globalI}
+                  onClick={() => found && toggle(globalI)}
                   disabled={!found}
                   className="w-full flex items-center gap-3 px-4 py-2.5 border-b border-cream-200/40 text-left transition-colors"
                   style={{
                     background: isSelected && found ? "rgba(139,94,60,0.04)" : "transparent",
-                    opacity: found ? 1 : 0.45,
+                    opacity: book === undefined ? 0.3 : found ? 1 : 0.45,
                     cursor: found ? "pointer" : "default",
                   }}
                 >
@@ -199,8 +241,8 @@ function PackPreview({
                     className="flex-shrink-0 rounded-sm overflow-hidden"
                     style={{ width: 36, height: 50 }}
                   >
-                    {book?.cover_url ? (
-                      <img src={book.cover_url} alt="" className="w-full h-full object-cover" />
+                    {(book as BookSearchResult)?.cover_url ? (
+                      <img src={(book as BookSearchResult).cover_url!} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <div
                         className="w-full h-full flex items-center justify-center"
@@ -214,12 +256,12 @@ function PackPreview({
                   {/* Title / author */}
                   <div className="flex-1 min-w-0">
                     <p className="font-display text-ink text-sm font-medium leading-tight line-clamp-2">
-                      {book?.title ?? packBook.title}
+                      {(book as BookSearchResult)?.title ?? packBook.title}
                     </p>
                     <p className="font-ui text-ink-muted text-xs truncate mt-0.5">
-                      {book?.author ?? packBook.author}
+                      {(book as BookSearchResult)?.author ?? packBook.author}
                     </p>
-                    {!found && (
+                    {book === null && (
                       <p className="font-ui text-xs mt-0.5" style={{ color: "#C9853E" }}>
                         Not found in Open Library
                       </p>
@@ -228,68 +270,91 @@ function PackPreview({
                 </button>
               );
             })}
+
+            {/* Pagination controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-4 py-3 border-t border-cream-200/60">
+                <button
+                  onClick={() => setPage((p) => p - 1)}
+                  disabled={page === 0}
+                  className="font-ui text-xs transition-colors"
+                  style={{ color: page === 0 ? "#C4B8A4" : "#8B5E3C" }}
+                >
+                  ← Prev
+                </button>
+                <span className="font-ui text-xs text-ink-muted">
+                  {page + 1} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page === totalPages - 1}
+                  className="font-ui text-xs transition-colors"
+                  style={{ color: page === totalPages - 1 ? "#C4B8A4" : "#8B5E3C" }}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>
 
       {/* Footer */}
-      {resolved && (
-        <div
-          className="flex-shrink-0 p-4 border-t border-cream-200"
-          style={{ background: "#FFFDF8" }}
-        >
-          {progress ? (
-            <div className="text-center space-y-2">
-              <div className="w-full h-2 bg-cream-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-300"
-                  style={{
-                    width: `${Math.round((progress.done / progress.total) * 100)}%`,
-                    background: "linear-gradient(to right, #8B5E3C, #C9853E)",
-                  }}
-                />
-              </div>
-              <p className="font-ui text-xs text-ink-muted">
-                Adding {progress.done} of {progress.total}…
-              </p>
+      <div
+        className="flex-shrink-0 p-4 border-t border-cream-200"
+        style={{ background: "#FFFDF8" }}
+      >
+        {progress ? (
+          <div className="text-center space-y-2">
+            <div className="w-full h-2 bg-cream-200 rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.round((progress.done / progress.total) * 100)}%`,
+                  background: "linear-gradient(to right, #8B5E3C, #C9853E)",
+                }}
+              />
             </div>
-          ) : (
-            <div className="space-y-3">
-              {/* Status picker */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-ui text-xs text-ink-muted">Add as:</span>
-                {STATUS_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setStatus(opt.value)}
-                    className="px-2.5 py-1 rounded-full text-xs font-ui transition-all"
-                    style={
-                      status === opt.value
-                        ? { background: "#8B5E3C", color: "#FFF8F0" }
-                        : { background: "#F5EDD6", color: "#7A6952", border: "1px solid #EBD9A8" }
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+            <p className="font-ui text-xs text-ink-muted">
+              Adding {progress.done} of {progress.total}…
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Status picker */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-ui text-xs text-ink-muted">Add as:</span>
+              {STATUS_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setStatus(opt.value)}
+                  className="px-2.5 py-1 rounded-full text-xs font-ui transition-all"
+                  style={
+                    status === opt.value
+                      ? { background: "#8B5E3C", color: "#FFF8F0" }
+                      : { background: "#F5EDD6", color: "#7A6952", border: "1px solid #EBD9A8" }
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
 
-              <button
-                onClick={handleAdd}
-                disabled={selectedCount === 0}
-                className="w-full py-2.5 rounded-sm font-ui text-sm transition-all"
-                style={
-                  selectedCount > 0
-                    ? { background: "#8B5E3C", color: "#FFF8F0" }
-                    : { background: "#E0D0B8", color: "#A89070", cursor: "not-allowed" }
-                }
-              >
-                Add {selectedCount} book{selectedCount !== 1 ? "s" : ""} to {currentYear} shelf
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+            <button
+              onClick={handleAdd}
+              disabled={selectedCount === 0}
+              className="w-full py-2.5 rounded-sm font-ui text-sm transition-all"
+              style={
+                selectedCount > 0
+                  ? { background: "#8B5E3C", color: "#FFF8F0" }
+                  : { background: "#E0D0B8", color: "#A89070", cursor: "not-allowed" }
+              }
+            >
+              Add {selectedCount} book{selectedCount !== 1 ? "s" : ""} to {currentYear} shelf
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

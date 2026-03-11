@@ -101,18 +101,16 @@ export function BookSpine({ userBook, onClick }: BookSpineProps) {
             {"★".repeat(rating)}
           </div>
         )}
-      </div>
 
-      {/* Page-top highlight */}
-      <div
-        className="absolute bottom-0 left-0 pointer-events-none"
-        style={{
-          width: width - 2,
-          height: height - 1,
-          borderTop: "2px solid rgba(255,255,255,0.35)",
-          borderRadius: "2px 4px 0 0",
-        }}
-      />
+        {/* Page-top highlight */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            borderTop: "2px solid rgba(255,255,255,0.35)",
+            borderRadius: "2px 4px 0 0",
+          }}
+        />
+      </div>
     </button>
   );
 }
