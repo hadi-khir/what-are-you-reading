@@ -289,6 +289,7 @@ export function Profile() {
           <BookShelf
             books={filtered}
             onBookClick={setSelected}
+            storageKey={`${username}-${year}`}
             emptyMessage={
               isOwnProfile
                 ? filter === "all"

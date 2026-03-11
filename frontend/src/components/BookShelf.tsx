@@ -58,6 +58,7 @@ interface BookShelfProps {
   books: UserBook[];
   onBookClick: (userBook: UserBook) => void;
   emptyMessage?: string;
+  storageKey?: string;
 }
 
 function FloatingPlank() {
@@ -172,15 +173,28 @@ function ShelfRow({
   );
 }
 
-export function BookShelf({ books, onBookClick, emptyMessage }: BookShelfProps) {
+export function BookShelf({ books, onBookClick, emptyMessage, storageKey }: BookShelfProps) {
   const booksPerRow = useBooksPerRow();
   const rows: UserBook[][] = [];
   for (let i = 0; i < books.length; i += booksPerRow) {
     rows.push(books.slice(i, i + booksPerRow));
   }
 
-  // Decor state: initialised from seeded hash, overridable by clicking.
-  const [decorOverrides, setDecorOverrides] = useState<Record<number, ShelfDecors>>({});
+  // Decor state: initialised from seeded hash, overridable by clicking, persisted to localStorage.
+  const [decorOverrides, setDecorOverrides] = useState<Record<number, ShelfDecors>>(() => {
+    if (!storageKey) return {};
+    try {
+      const raw = localStorage.getItem(`bookshelf:decor:${storageKey}`);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    if (!storageKey || Object.keys(decorOverrides).length === 0) return;
+    localStorage.setItem(`bookshelf:decor:${storageKey}`, JSON.stringify(decorOverrides));
+  }, [decorOverrides, storageKey]);
 
   function getDecors(idx: number): ShelfDecors {
     return decorOverrides[idx] ?? getShelfDecors(idx);
