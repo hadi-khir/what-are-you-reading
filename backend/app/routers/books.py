@@ -25,13 +25,14 @@ def _parse_doc(doc: dict[str, Any]) -> BookSearchResult:
 
 
 @router.get("/search", response_model=list[BookSearchResult])
-def search_books(q: str = Query(min_length=1, max_length=200)):
+async def search_books(q: str = Query(min_length=1, max_length=200)):
     try:
-        response = httpx.get(
-            OPEN_LIBRARY_SEARCH,
-            params={"q": q, "limit": 15, "fields": "key,title,author_name,cover_i,first_publish_year"},
-            timeout=10,
-        )
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                OPEN_LIBRARY_SEARCH,
+                params={"q": q, "limit": 15, "fields": "key,title,author_name,cover_i,first_publish_year"},
+                timeout=10,
+            )
         response.raise_for_status()
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="Failed to reach Open Library")

@@ -43,10 +43,15 @@ async function resolvePackPage(
   await Promise.all(
     toFetch.map(async (i) => {
       const b = pack.books[i];
-      cache[i] = await booksApi
-        .search(`${b.title} ${b.author}`)
-        .then((r) => r[0] ?? null)
-        .catch(() => null);
+      try {
+        const byBoth = await booksApi.search(`${b.title} ${b.author}`);
+        if (byBoth.length > 0) { cache[i] = byBoth[0]; return; }
+        // Fallback: title-only search
+        const byTitle = await booksApi.search(b.title);
+        cache[i] = byTitle[0] ?? null;
+      } catch {
+        cache[i] = null;
+      }
     }),
   );
 }
